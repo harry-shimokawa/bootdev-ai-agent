@@ -1,8 +1,16 @@
+"""
+Main module for the bootdev-ai-agent application.
+
+This module provides the core functionality for AI-powered agent operations
+using Google's Generative AI services.
+"""
+
 import os
+import sys
+
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-import sys
 
 
 def print_usage_stats(usage, verbose: bool) -> None:
