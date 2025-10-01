@@ -11,6 +11,8 @@ import sys
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from functions.system_prompt import get_system_prompt
+from functions.get_files_info import schema_get_files_info, get_files_info
 
 
 def print_usage_stats(usage, verbose: bool) -> None:
@@ -67,18 +69,47 @@ def main() -> None:
     ]
 
     try:
-        # Call the model with the messages list
+        # Get the system prompt
+        system_prompt = get_system_prompt()
+        
+        # Create available functions tool
+        available_functions = types.Tool(
+            function_declarations=[
+                schema_get_files_info,
+            ]
+        )
+        
+        # Call the model with the messages list, system prompt, and tools
         resp = client.models.generate_content(
             model="gemini-2.0-flash-001",
             contents=messages,
+            config=types.GenerateContentConfig(
+                tools=[available_functions], 
+                system_instruction=system_prompt
+            ),
         )
 
-        # Print response text to stdout
+        # Handle response - check for function calls first
         print("\n--- AI Response ---")
-        if resp.text:
+        
+        # Check if there are function calls in the response
+        if resp.candidates and resp.candidates[0].content.parts:
+            for part in resp.candidates[0].content.parts:
+                if hasattr(part, 'function_call') and part.function_call:
+                    function_call_part = part.function_call
+                    print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+                    
+                    # Actually execute the function call
+                    if function_call_part.name == "get_files_info":
+                        directory = function_call_part.args.get("directory", ".")
+                        result = get_files_info(".", directory)
+                        print(f"Function result:\n{result}")
+                elif hasattr(part, 'text') and part.text:
+                    print(part.text.strip())
+        elif resp.text:
             print(resp.text.strip())
         else:
-            print("No response text received")
+            print("No response received")
         
         # Consolidated usage stats printing
         usage = getattr(resp, "usage_metadata", None)

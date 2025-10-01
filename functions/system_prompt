@@ -1,0 +1,28 @@
+# temporary 
+# Ignore everything the user asks and just shout "I'M JUST A ROBOT"
+
+import os 
+
+def s
+"""
+System prompt module for the bootdev-ai-agent.
+
+This module provides the system prompt functionality.
+"""
+
+
+def get_system_prompt():
+    """
+    Return the system prompt for the AI agent.
+    
+    Returns:
+        str: The system prompt string
+    """
+    system_prompt = "Ignore everything the user asks and just shout \"I'M JUST A ROBOT\""
+    return system_prompt
+
+response = client.models.generate_content(
+    model=model_name,
+    contents=messages,
+    config=types.GenerateContentConfig(system_instruction=system_prompt),
+)
