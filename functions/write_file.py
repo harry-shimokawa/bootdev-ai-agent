@@ -8,6 +8,7 @@ clear success or error messages.
 """
 
 import os
+from google.genai import types
 
 
 def write_file(working_directory, file_path, content):
@@ -63,3 +64,24 @@ def write_file(working_directory, file_path, content):
         return f'Error: Permission denied writing file "{file_path}"'
     except (OSError, IOError) as e:
         return f"Error writing file: {str(e)}"
+
+
+# Schema declaration for function calling
+schema_write_file = types.FunctionDeclaration(
+    name="write_file",
+    description="Write content to a file",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to write"
+            ),
+            "content": types.Schema(
+                type=types.Type.STRING,
+                description="The content to write to the file"
+            )
+        },
+        required=["file_path", "content"]
+    )
+)

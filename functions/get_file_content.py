@@ -6,6 +6,7 @@ working directory boundaries and truncate large files.
 """
 import os
 from config import MAX_FILE_SIZE_CHARS
+from google.genai import types
 
 
 def get_file_content(working_directory, file_path):
@@ -60,3 +61,20 @@ def get_file_content(working_directory, file_path):
         return f'Error: Permission denied reading file "{file_path}"'
     except (OSError, IOError) as e:
         return f"Error reading file: {str(e)}"
+
+
+# Schema declaration for function calling
+schema_get_file_content = types.FunctionDeclaration(
+    name="get_file_content",
+    description="Get the content of a specific file",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to read"
+            )
+        },
+        required=["file_path"]
+    )
+)

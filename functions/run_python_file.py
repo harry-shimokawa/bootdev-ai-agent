@@ -8,6 +8,7 @@ constraints and timeout protection.
 import os
 import subprocess
 import sys
+from google.genai import types
 
 
 def is_within_directory(working_directory, file_path):
@@ -83,4 +84,26 @@ def run_python_file(working_directory, file_path, args=None):
         return "Error: Process timed out after 30 seconds."
     except Exception as e:
         return f"Error executing Python file: {e}"
+
+
+# Schema declaration for function calling
+schema_run_python_file = types.FunctionDeclaration(
+    name="run_python_file",
+    description="Execute a Python file and return the output",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the Python file to execute"
+            ),
+            "args": types.Schema(
+                type=types.Type.ARRAY,
+                items=types.Schema(type=types.Type.STRING),
+                description="Optional command-line arguments to pass to the script"
+            )
+        },
+        required=["file_path"]
+    )
+)
 

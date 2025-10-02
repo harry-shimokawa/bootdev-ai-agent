@@ -13,6 +13,9 @@ from google import genai
 from google.genai import types
 from functions.system_prompt import get_system_prompt
 from functions.get_files_info import schema_get_files_info, get_files_info
+from functions.get_file_content import schema_get_file_content, get_file_content
+from functions.write_file import schema_write_file, write_file
+from functions.run_python_file import schema_run_python_file, run_python_file
 
 
 def print_usage_stats(usage, verbose: bool) -> None:
@@ -76,6 +79,9 @@ def main() -> None:
         available_functions = types.Tool(
             function_declarations=[
                 schema_get_files_info,
+                schema_get_file_content,
+                schema_write_file,
+                schema_run_python_file,
             ]
         )
         
@@ -103,6 +109,20 @@ def main() -> None:
                     if function_call_part.name == "get_files_info":
                         directory = function_call_part.args.get("directory", ".")
                         result = get_files_info(".", directory)
+                        print(f"Function result:\n{result}")
+                    elif function_call_part.name == "get_file_content":
+                        file_path = function_call_part.args.get("file_path")
+                        result = get_file_content(".", file_path)
+                        print(f"Function result:\n{result}")
+                    elif function_call_part.name == "write_file":
+                        file_path = function_call_part.args.get("file_path")
+                        content = function_call_part.args.get("content")
+                        result = write_file(".", file_path, content)
+                        print(f"Function result:\n{result}")
+                    elif function_call_part.name == "run_python_file":
+                        file_path = function_call_part.args.get("file_path")
+                        args = function_call_part.args.get("args", [])
+                        result = run_python_file(".", file_path, args)
                         print(f"Function result:\n{result}")
                 elif hasattr(part, 'text') and part.text:
                     print(part.text.strip())
