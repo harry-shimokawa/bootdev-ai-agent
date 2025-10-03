@@ -32,6 +32,74 @@ def print_usage_stats(usage, verbose: bool) -> None:
         pass
 
 
+def call_function(function_call_part, verbose=False):
+    """
+    Handle the abstract task of calling one of our four functions.
+    
+    Args:
+        function_call_part: A types.FunctionCall with .name and .args properties
+        verbose: Whether to print detailed function call information
+        
+    Returns:
+        types.Content with function response or error message
+    """
+    function_name = function_call_part.name
+    
+    if verbose:
+        print(f"Calling function: {function_name}({function_call_part.args})")
+    else:
+        print(f" - Calling function: {function_name}")
+    
+    # Dictionary mapping function names to actual functions
+    available_functions = {
+        "get_files_info": get_files_info,
+        "get_file_content": get_file_content,
+        "write_file": write_file,
+        "run_python_file": run_python_file,
+    }
+    
+    # Check if function name is valid
+    if function_name not in available_functions:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"error": f"Unknown function: {function_name}"},
+                )
+            ],
+        )
+    
+    # Get the function and add working_directory to args
+    func = available_functions[function_name]
+    args = dict(function_call_part.args)  # Make a copy
+    args["working_directory"] = "./calculator"
+    
+    try:
+        # Call the function with keyword arguments
+        function_result = func(**args)
+        
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"result": function_result},
+                )
+            ],
+        )
+    except Exception as e:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"error": f"Error executing {function_name}: {str(e)}"},
+                )
+            ],
+        )
+
+
 def main() -> None:
     # Load env vars from .env
     load_dotenv()
@@ -103,27 +171,24 @@ def main() -> None:
             for part in resp.candidates[0].content.parts:
                 if hasattr(part, 'function_call') and part.function_call:
                     function_call_part = part.function_call
-                    print(f"Calling function: {function_call_part.name}({function_call_part.args})")
                     
-                    # Actually execute the function call
-                    if function_call_part.name == "get_files_info":
-                        directory = function_call_part.args.get("directory", ".")
-                        result = get_files_info(".", directory)
-                        print(f"Function result:\n{result}")
-                    elif function_call_part.name == "get_file_content":
-                        file_path = function_call_part.args.get("file_path")
-                        result = get_file_content(".", file_path)
-                        print(f"Function result:\n{result}")
-                    elif function_call_part.name == "write_file":
-                        file_path = function_call_part.args.get("file_path")
-                        content = function_call_part.args.get("content")
-                        result = write_file(".", file_path, content)
-                        print(f"Function result:\n{result}")
-                    elif function_call_part.name == "run_python_file":
-                        file_path = function_call_part.args.get("file_path")
-                        args = function_call_part.args.get("args", [])
-                        result = run_python_file(".", file_path, args)
-                        print(f"Function result:\n{result}")
+                    # Use the new call_function to handle the function call
+                    function_call_result = call_function(function_call_part, verbose)
+                    
+                    # Validate the response structure
+                    if not hasattr(function_call_result, 'parts') or not function_call_result.parts:
+                        raise Exception("Invalid function call result: missing parts")
+                    
+                    if not hasattr(function_call_result.parts[0], 'function_response'):
+                        raise Exception("Invalid function call result: missing function_response")
+                        
+                    if not hasattr(function_call_result.parts[0].function_response, 'response'):
+                        raise Exception("Invalid function call result: missing response")
+                    
+                    # Print the result if in verbose mode
+                    if verbose:
+                        print(f"-> {function_call_result.parts[0].function_response.response}")
+                        
                 elif hasattr(part, 'text') and part.text:
                     print(part.text.strip())
         elif resp.text:
