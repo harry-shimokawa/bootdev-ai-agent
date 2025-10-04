@@ -153,48 +153,76 @@ def main() -> None:
             ]
         )
         
-        # Call the model with the messages list, system prompt, and tools
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash-001",
-            contents=messages,
-            config=types.GenerateContentConfig(
-                tools=[available_functions], 
-                system_instruction=system_prompt
-            ),
-        )
-
-        # Handle response - check for function calls first
-        print("\n--- AI Response ---")
+        # Agent conversation loop - maximum 20 iterations
+        max_iterations = 20
+        iteration = 0
         
-        # Check if there are function calls in the response
-        if resp.candidates and resp.candidates[0].content.parts:
-            for part in resp.candidates[0].content.parts:
-                if hasattr(part, 'function_call') and part.function_call:
-                    function_call_part = part.function_call
-                    
-                    # Use the new call_function to handle the function call
-                    function_call_result = call_function(function_call_part, verbose)
-                    
-                    # Validate the response structure
-                    if not hasattr(function_call_result, 'parts') or not function_call_result.parts:
-                        raise Exception("Invalid function call result: missing parts")
-                    
-                    if not hasattr(function_call_result.parts[0], 'function_response'):
-                        raise Exception("Invalid function call result: missing function_response")
+        while iteration < max_iterations:
+            iteration += 1
+            
+            # Call the model with the current messages list, system prompt, and tools
+            resp = client.models.generate_content(
+                model="gemini-2.0-flash-001",
+                contents=messages,
+                config=types.GenerateContentConfig(
+                    tools=[available_functions], 
+                    system_instruction=system_prompt
+                ),
+            )
+            
+            # Add the response candidate(s) content to our messages
+            if resp.candidates:
+                for candidate in resp.candidates:
+                    if candidate.content:
+                        messages.append(candidate.content)
+            
+            # Handle function calls in the response first
+            function_calls_made = False
+            if resp.candidates and resp.candidates[0].content.parts:
+                for part in resp.candidates[0].content.parts:
+                    if hasattr(part, 'function_call') and part.function_call:
+                        function_call_part = part.function_call
+                        function_calls_made = True
                         
-                    if not hasattr(function_call_result.parts[0].function_response, 'response'):
-                        raise Exception("Invalid function call result: missing response")
-                    
-                    # Print the result if in verbose mode
-                    if verbose:
-                        print(f"-> {function_call_result.parts[0].function_response.response}")
+                        # Use the new call_function to handle the function call
+                        function_call_result = call_function(function_call_part, verbose)
                         
-                elif hasattr(part, 'text') and part.text:
-                    print(part.text.strip())
-        elif resp.text:
-            print(resp.text.strip())
-        else:
-            print("No response received")
+                        # Validate the response structure
+                        if not hasattr(function_call_result, 'parts') or not function_call_result.parts:
+                            raise Exception("Invalid function call result: missing parts")
+                        
+                        if not hasattr(function_call_result.parts[0], 'function_response'):
+                            raise Exception("Invalid function call result: missing function_response")
+                            
+                        if not hasattr(function_call_result.parts[0].function_response, 'response'):
+                            raise Exception("Invalid function call result: missing response")
+                        
+                        # Print the result if in verbose mode
+                        if verbose:
+                            print(f"-> {function_call_result.parts[0].function_response.response}")
+                        
+                        # Add function response to messages as a 'user' message
+                        messages.append(function_call_result)
+                        
+                    elif hasattr(part, 'text') and part.text:
+                        # If there's text content, print it but don't break yet
+                        # The model might still be thinking
+                        if verbose:
+                            print(f"Model text: {part.text.strip()}")
+            
+            # Check if we got a final text response and no function calls (conversation is done)
+            if resp.text and not function_calls_made:
+                print("Final response:")
+                print(resp.text.strip())
+                break
+            
+            # If no function calls were made and no final text, something went wrong
+            if not function_calls_made and not resp.text:
+                print("No function calls made and no final response. Ending conversation.")
+                break
+                
+        if iteration >= max_iterations:
+            print(f"Reached maximum iterations ({max_iterations}). Ending conversation.")
         
         # Consolidated usage stats printing
         usage = getattr(resp, "usage_metadata", None)
