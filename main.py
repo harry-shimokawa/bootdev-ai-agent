@@ -88,13 +88,24 @@ def call_function(function_call_part, verbose=False):
                 )
             ],
         )
-    except Exception as e:
+    except (TypeError, ValueError, OSError, IOError) as e:
         return types.Content(
             role="tool",
             parts=[
                 types.Part.from_function_response(
                     name=function_name,
-                    response={"error": f"Error executing {function_name}: {str(e)}"},
+                    response={"error": f"Error executing {function_name}: {type(e).__name__}"},
+                )
+            ],
+        )
+    except Exception as e:
+        # Catch-all for unexpected errors - log but don't expose details
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"error": f"Unexpected error in {function_name}"},
                 )
             ],
         )
@@ -228,8 +239,14 @@ def main() -> None:
         usage = getattr(resp, "usage_metadata", None)
         print_usage_stats(usage, verbose)
             
+    except (ValueError, TypeError) as e:
+        print(f"Input error: {type(e).__name__}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, IOError) as e:
+        print(f"File system error: {type(e).__name__}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(f"Error generating response: {e}", file=sys.stderr)
+        print("Unexpected error occurred. Please check your configuration.", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":

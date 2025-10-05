@@ -4,9 +4,9 @@ class Calculator:
             "+": lambda a, b: a + b,
             "-": lambda a, b: a - b,
             "*": lambda a, b: a * b,
-            "/": lambda a, b: a / b,
+            "/": lambda a, b: a / b if b != 0 else float('inf') if a >= 0 else float('-inf'),
             "^": lambda a, b: a ** b,
-            "%": lambda a, b: a % b,
+            "%": lambda a, b: a % b if b != 0 else float('nan'),
         }
         self.precedence = {
             "+": 1,

@@ -15,7 +15,11 @@ def is_within_directory(working_directory, file_path):
     """Check if file_path is within the working_directory bounds."""
     working_dir_abs = os.path.abspath(working_directory)
     target_file_abs = os.path.abspath(os.path.join(working_directory, file_path))
-    return target_file_abs.startswith(working_dir_abs)
+    try:
+        return os.path.commonpath([working_dir_abs, target_file_abs]) == working_dir_abs
+    except ValueError:
+        # Raised if paths are on different drives - treat as outside
+        return False
 
 
 def run_python_file(working_directory, file_path, args=None):

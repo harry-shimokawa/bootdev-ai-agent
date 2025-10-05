@@ -28,7 +28,12 @@ def get_file_content(working_directory, file_path):
         )
 
         # Check if target file is within working directory boundaries
-        if not target_file_abs.startswith(working_dir_abs):
+        try:
+            within = os.path.commonpath([working_dir_abs, target_file_abs]) == working_dir_abs
+        except ValueError:
+            # Raised if paths are on different drives - treat as outside
+            within = False
+        if not within:
             return (
                 f'Error: Cannot read "{file_path}" as it is outside '
                 f'the permitted working directory'

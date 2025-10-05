@@ -19,7 +19,12 @@ def get_files_info(working_directory, directory="."):
         target_dir_abs = os.path.abspath(os.path.join(working_directory, directory))
         
         # Check if target directory is within working directory boundaries
-        if not target_dir_abs.startswith(working_dir_abs):
+        try:
+            within = os.path.commonpath([working_dir_abs, target_dir_abs]) == working_dir_abs
+        except ValueError:
+            # Raised if paths are on different drives - treat as outside
+            within = False
+        if not within:
             return f'Error: Cannot list "{directory}" as it is outside the permitted working directory'
         
         # Check if target path exists and is a directory
