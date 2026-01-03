@@ -100,13 +100,24 @@ def call_function(function_call_part, verbose: bool = False) -> types.Content:
 
 def parse_cli_args(argv: list[str]) -> tuple[str, bool]:
     """Parse CLI arguments and return the prompt and verbose flag."""
-    if len(argv) <= 1:
-        raise ValueError("No prompt provided.")
-
     verbose = "--verbose" in argv
     args_without_verbose = [arg for arg in argv[1:] if arg != "--verbose"]
+    
+    # If no command-line arguments, try environment variable, stdin, or use default
     if not args_without_verbose:
-        raise ValueError("No prompt provided.")
+        # Try USER_PROMPT environment variable first
+        env_prompt = os.environ.get("USER_PROMPT")
+        if env_prompt:
+            return env_prompt, verbose
+        
+        # Then try stdin if available
+        if not sys.stdin.isatty():
+            stdin_prompt = sys.stdin.read().strip()
+            if stdin_prompt:
+                return stdin_prompt, verbose
+        
+        # Use a default prompt for testing
+        return "Hello, how are you?", verbose
 
     return " ".join(args_without_verbose), verbose
 
