@@ -25,18 +25,15 @@ USAGE_MESSAGE = 'Usage: python main.py "Your prompt here" [--verbose]'
 WORKING_DIRECTORY = "./calculator"
 
 
-def print_usage_stats(usage, verbose: bool) -> None:
-    """Print usage stats if verbose is enabled."""
-    if not verbose:
-        return
+def print_usage_stats(usage) -> None:
+    """Print usage stats from the API response."""
+    if not usage:
+        raise RuntimeError(
+            "No usage metadata available. This likely indicates a failed API request."
+        )
 
-    if usage:
-        print(f"Prompt tokens: {usage.prompt_token_count}")
-        print(f"Response tokens: {usage.candidates_token_count}")
-        return
-
-    print("Prompt tokens: N/A")
-    print("Response tokens: N/A")
+    print(f"Prompt tokens: {usage.prompt_token_count}")
+    print(f"Response tokens: {usage.candidates_token_count}")
 
 
 def build_tool_response(function_name: str, payload: dict[str, str]) -> types.Content:
@@ -235,7 +232,9 @@ def run_conversation(client, messages: list[types.Content], verbose: bool) -> No
         function_calls_made = handle_response_parts(parts, messages, verbose)
 
         if resp.text and not function_calls_made:
-            print("Final response:")
+            usage = getattr(resp, "usage_metadata", None)
+            print_usage_stats(usage)
+            print("Response:")
             print(resp.text.strip())
             break
 
@@ -244,12 +243,6 @@ def run_conversation(client, messages: list[types.Content], verbose: bool) -> No
             break
     else:
         print(f"Reached maximum iterations ({MAX_ITERATIONS}). Ending conversation.")
-
-    if resp is None:
-        raise RuntimeError("No response received from the model.")
-
-    usage = getattr(resp, "usage_metadata", None)
-    print_usage_stats(usage, verbose)
 
 
 def main() -> None:
