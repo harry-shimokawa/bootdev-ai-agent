@@ -5,51 +5,71 @@ This module provides the core functionality for AI-powered agent operations
 using Google's Generative AI services.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
 from functions.system_prompt import get_system_prompt
 from functions.get_files_info import schema_get_files_info, get_files_info
 from functions.get_file_content import schema_get_file_content, get_file_content
 from functions.write_file import schema_write_file, write_file
 from functions.run_python_file import schema_run_python_file, run_python_file
 
+MAX_ITERATIONS = 20
+USAGE_MESSAGE = 'Usage: python main.py "Your prompt here" [--verbose]'
+WORKING_DIRECTORY = "./calculator"
+
 
 def print_usage_stats(usage, verbose: bool) -> None:
-    if verbose:
-        # In verbose mode, print to stdout
-        if usage:
-            print(f"Prompt tokens: {usage.prompt_token_count}")
-            print(f"Response tokens: {usage.candidates_token_count}")
-        else:
-            print("Prompt tokens: N/A")
-            print("Response tokens: N/A")
-    else:
-        # In non-verbose mode, don't print anything
-        pass
+    """Print usage stats if verbose is enabled."""
+    if not verbose:
+        return
+
+    if usage:
+        print(f"Prompt tokens: {usage.prompt_token_count}")
+        print(f"Response tokens: {usage.candidates_token_count}")
+        return
+
+    print("Prompt tokens: N/A")
+    print("Response tokens: N/A")
 
 
-def call_function(function_call_part, verbose=False):
+def build_tool_response(function_name: str, payload: dict[str, str]) -> types.Content:
+    """Build a tool response for the model."""
+    return types.Content(
+        role="tool",
+        parts=[
+            types.Part.from_function_response(
+                name=function_name,
+                response=payload,
+            )
+        ],
+    )
+
+
+def call_function(function_call_part, verbose: bool = False) -> types.Content:
     """
     Handle the abstract task of calling one of our four functions.
-    
+
     Args:
         function_call_part: A types.FunctionCall with .name and .args properties
         verbose: Whether to print detailed function call information
-        
+
     Returns:
         types.Content with function response or error message
     """
     function_name = function_call_part.name
-    
+
     if verbose:
         print(f"Calling function: {function_name}({function_call_part.args})")
     else:
         print(f" - Calling function: {function_name}")
-    
+
     # Dictionary mapping function names to actual functions
     available_functions = {
         "get_files_info": get_files_info,
@@ -57,197 +77,218 @@ def call_function(function_call_part, verbose=False):
         "write_file": write_file,
         "run_python_file": run_python_file,
     }
-    
-    # Check if function name is valid
+
     if function_name not in available_functions:
-        return types.Content(
-            role="tool",
-            parts=[
-                types.Part.from_function_response(
-                    name=function_name,
-                    response={"error": f"Unknown function: {function_name}"},
-                )
-            ],
+        return build_tool_response(
+            function_name,
+            {"error": f"Unknown function: {function_name}"},
         )
-    
-    # Get the function and add working_directory to args
+
     func = available_functions[function_name]
-    args = dict(function_call_part.args)  # Make a copy
-    args["working_directory"] = "./calculator"
-    
+    args = dict(function_call_part.args)
+    args["working_directory"] = WORKING_DIRECTORY
+
     try:
-        # Call the function with keyword arguments
         function_result = func(**args)
-        
-        return types.Content(
-            role="tool",
-            parts=[
-                types.Part.from_function_response(
-                    name=function_name,
-                    response={"result": function_result},
-                )
-            ],
+        return build_tool_response(
+            function_name,
+            {"result": function_result},
         )
-    except (TypeError, ValueError, OSError, IOError) as e:
-        return types.Content(
-            role="tool",
-            parts=[
-                types.Part.from_function_response(
-                    name=function_name,
-                    response={"error": f"Error executing {function_name}: {type(e).__name__}"},
-                )
-            ],
-        )
-    except Exception as e:
-        # Catch-all for unexpected errors - log but don't expose details
-        return types.Content(
-            role="tool",
-            parts=[
-                types.Part.from_function_response(
-                    name=function_name,
-                    response={"error": f"Unexpected error in {function_name}"},
-                )
-            ],
+    except (TypeError, ValueError, OSError, IOError, KeyError) as err:
+        return build_tool_response(
+            function_name,
+            {"error": f"Error executing {function_name}: {type(err).__name__}"},
         )
 
 
-def main() -> None:
-    # Load env vars from .env
-    load_dotenv()
+def parse_cli_args(argv: list[str]) -> tuple[str, bool]:
+    """Parse CLI arguments and return the prompt and verbose flag."""
+    if len(argv) <= 1:
+        raise ValueError("No prompt provided.")
 
-    # Get API key from environment variable
+    verbose = "--verbose" in argv
+    args_without_verbose = [arg for arg in argv[1:] if arg != "--verbose"]
+    if not args_without_verbose:
+        raise ValueError("No prompt provided.")
+
+    return " ".join(args_without_verbose), verbose
+
+
+def print_usage_error() -> None:
+    """Print the command line usage error and usage message."""
+    print(
+        "Error: No prompt provided. Please provide a prompt as a command line argument.",
+        file=sys.stderr,
+    )
+    print(USAGE_MESSAGE, file=sys.stderr)
+
+
+def get_api_key() -> str:
+    """Return the Gemini API key or raise a ValueError if missing."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("Error: Missing GEMINI_API_KEY. Add it to your environment or to a .env file.", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("Missing GEMINI_API_KEY.")
+    return api_key
 
-    # Create Gemini client
-    client = genai.Client(api_key=api_key)
 
-    # Check for command line arguments for custom prompt and verbose flag
-    if len(sys.argv) > 1:
-        # Check if --verbose flag is present
-        verbose = "--verbose" in sys.argv
-        
-        # Remove --verbose from arguments to get the prompt
-        args_without_verbose = [arg for arg in sys.argv[1:] if arg != "--verbose"]
-        
-        if args_without_verbose:
-            user_prompt = " ".join(args_without_verbose)
-            if verbose:
-                print(f"User prompt: {user_prompt}")
-        else:
-            print("Error: No prompt provided. Please provide a prompt as a command line argument.", file=sys.stderr)
-            print("Usage: python main.py \"Your prompt here\" [--verbose]", file=sys.stderr)
-            sys.exit(1)
-    else:
-        print("Error: No prompt provided. Please provide a prompt as a command line argument.", file=sys.stderr)
-        print("Usage: python main.py \"Your prompt here\" [--verbose]", file=sys.stderr)
-        sys.exit(1)
-
-    # Create a list of types.Content with the user's prompt
-    messages = [
+def build_messages(user_prompt: str) -> list[types.Content]:
+    """Build the initial messages list."""
+    return [
         types.Content(role="user", parts=[types.Part(text=user_prompt)]),
     ]
 
-    try:
-        # Get the system prompt
-        system_prompt = get_system_prompt()
-        
-        # Create available functions tool
-        available_functions = types.Tool(
-            function_declarations=[
-                schema_get_files_info,
-                schema_get_file_content,
-                schema_write_file,
-                schema_run_python_file,
-            ]
+
+def build_tools() -> types.Tool:
+    """Build the tool declaration for function calling."""
+    return types.Tool(
+        function_declarations=[
+            schema_get_files_info,
+            schema_get_file_content,
+            schema_write_file,
+            schema_run_python_file,
+        ]
+    )
+
+
+def append_candidate_messages(resp, messages: list[types.Content]) -> None:
+    """Append candidate content to the conversation history."""
+    for candidate in resp.candidates or []:
+        if candidate.content:
+            messages.append(candidate.content)
+
+
+def get_response_parts(resp) -> list[types.Part]:
+    """Return parts from the first candidate response if present."""
+    if not resp.candidates:
+        return []
+
+    content = resp.candidates[0].content
+    if not content or not content.parts:
+        return []
+
+    return list(content.parts)
+
+
+def validate_function_response(function_call_result: types.Content) -> None:
+    """Validate the structure of a function call response."""
+    if not getattr(function_call_result, "parts", None):
+        raise RuntimeError("Invalid function call result: missing parts")
+
+    first_part = function_call_result.parts[0]
+    if not getattr(first_part, "function_response", None):
+        raise RuntimeError("Invalid function call result: missing function_response")
+
+    if not getattr(first_part.function_response, "response", None):
+        raise RuntimeError("Invalid function call result: missing response")
+
+
+def log_model_text(part: types.Part, verbose: bool) -> None:
+    """Log model text parts when verbose is enabled."""
+    text = getattr(part, "text", None)
+    if verbose and text:
+        print(f"Model text: {text.strip()}")
+
+
+def handle_response_parts(
+    parts: list[types.Part],
+    messages: list[types.Content],
+    verbose: bool,
+) -> bool:
+    """Process response parts, handling function calls and text."""
+    function_calls_made = False
+    for part in parts:
+        function_call_part = getattr(part, "function_call", None)
+        if function_call_part:
+            function_calls_made = True
+            function_call_result = call_function(function_call_part, verbose)
+            validate_function_response(function_call_result)
+
+            if verbose:
+                response = function_call_result.parts[0].function_response.response
+                print(f"-> {response}")
+
+            messages.append(function_call_result)
+        else:
+            log_model_text(part, verbose)
+
+    return function_calls_made
+
+
+def run_conversation(client, messages: list[types.Content], verbose: bool) -> None:
+    """Run the agent conversation loop until completion."""
+    system_prompt = get_system_prompt()
+    available_functions = build_tools()
+    resp = None
+
+    for _ in range(MAX_ITERATIONS):
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash-001",
+            contents=messages,
+            config=types.GenerateContentConfig(
+                tools=[available_functions],
+                system_instruction=system_prompt,
+            ),
         )
-        
-        # Agent conversation loop - maximum 20 iterations
-        max_iterations = 20
-        iteration = 0
-        
-        while iteration < max_iterations:
-            iteration += 1
-            
-            # Call the model with the current messages list, system prompt, and tools
-            resp = client.models.generate_content(
-                model="gemini-2.0-flash-001",
-                contents=messages,
-                config=types.GenerateContentConfig(
-                    tools=[available_functions], 
-                    system_instruction=system_prompt
-                ),
-            )
-            
-            # Add the response candidate(s) content to our messages
-            if resp.candidates:
-                for candidate in resp.candidates:
-                    if candidate.content:
-                        messages.append(candidate.content)
-            
-            # Handle function calls in the response first
-            function_calls_made = False
-            if resp.candidates and resp.candidates[0].content.parts:
-                for part in resp.candidates[0].content.parts:
-                    if hasattr(part, 'function_call') and part.function_call:
-                        function_call_part = part.function_call
-                        function_calls_made = True
-                        
-                        # Use the new call_function to handle the function call
-                        function_call_result = call_function(function_call_part, verbose)
-                        
-                        # Validate the response structure
-                        if not hasattr(function_call_result, 'parts') or not function_call_result.parts:
-                            raise Exception("Invalid function call result: missing parts")
-                        
-                        if not hasattr(function_call_result.parts[0], 'function_response'):
-                            raise Exception("Invalid function call result: missing function_response")
-                            
-                        if not hasattr(function_call_result.parts[0].function_response, 'response'):
-                            raise Exception("Invalid function call result: missing response")
-                        
-                        # Print the result if in verbose mode
-                        if verbose:
-                            print(f"-> {function_call_result.parts[0].function_response.response}")
-                        
-                        # Add function response to messages as a 'user' message
-                        messages.append(function_call_result)
-                        
-                    elif hasattr(part, 'text') and part.text:
-                        # If there's text content, print it but don't break yet
-                        # The model might still be thinking
-                        if verbose:
-                            print(f"Model text: {part.text.strip()}")
-            
-            # Check if we got a final text response and no function calls (conversation is done)
-            if resp.text and not function_calls_made:
-                print("Final response:")
-                print(resp.text.strip())
-                break
-            
-            # If no function calls were made and no final text, something went wrong
-            if not function_calls_made and not resp.text:
-                print("No function calls made and no final response. Ending conversation.")
-                break
-                
-        if iteration >= max_iterations:
-            print(f"Reached maximum iterations ({max_iterations}). Ending conversation.")
-        
-        # Consolidated usage stats printing
-        usage = getattr(resp, "usage_metadata", None)
-        print_usage_stats(usage, verbose)
-            
-    except (ValueError, TypeError) as e:
-        print(f"Input error: {type(e).__name__}", file=sys.stderr)
+
+        append_candidate_messages(resp, messages)
+        parts = get_response_parts(resp)
+        function_calls_made = handle_response_parts(parts, messages, verbose)
+
+        if resp.text and not function_calls_made:
+            print("Final response:")
+            print(resp.text.strip())
+            break
+
+        if not function_calls_made and not resp.text:
+            print("No function calls made and no final response. Ending conversation.")
+            break
+    else:
+        print(f"Reached maximum iterations ({MAX_ITERATIONS}). Ending conversation.")
+
+    if resp is None:
+        raise RuntimeError("No response received from the model.")
+
+    usage = getattr(resp, "usage_metadata", None)
+    print_usage_stats(usage, verbose)
+
+
+def main() -> None:
+    """Entry point for the CLI."""
+    load_dotenv()
+
+    try:
+        user_prompt, verbose = parse_cli_args(sys.argv)
+    except ValueError:
+        print_usage_error()
         sys.exit(1)
-    except (OSError, IOError) as e:
-        print(f"File system error: {type(e).__name__}", file=sys.stderr)
+
+    try:
+        api_key = get_api_key()
+    except ValueError:
+        print(
+            "Error: Missing GEMINI_API_KEY. Add it to your environment or to a .env file.",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    except Exception as e:
-        print("Unexpected error occurred. Please check your configuration.", file=sys.stderr)
+
+    if verbose:
+        print(f"User prompt: {user_prompt}")
+
+    client = genai.Client(api_key=api_key)
+    messages = build_messages(user_prompt)
+
+    try:
+        run_conversation(client, messages, verbose)
+    except (ValueError, TypeError) as err:
+        print(f"Input error: {type(err).__name__}", file=sys.stderr)
         sys.exit(1)
+    except (OSError, IOError) as err:
+        print(f"File system error: {type(err).__name__}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as err:
+        print(str(err), file=sys.stderr)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
