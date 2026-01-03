@@ -12,6 +12,7 @@ import sys
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors
 from google.genai import types
 
 from functions.system_prompt import get_system_prompt
@@ -28,12 +29,25 @@ WORKING_DIRECTORY = "./calculator"
 def print_usage_stats(usage) -> None:
     """Print usage stats from the API response."""
     if not usage:
-        raise RuntimeError(
-            "No usage metadata available. This likely indicates a failed API request."
-        )
+        print("Prompt tokens: N/A")
+        print("Response tokens: N/A")
+        return
 
     print(f"Prompt tokens: {usage.prompt_token_count}")
     print(f"Response tokens: {usage.candidates_token_count}")
+
+
+def handle_client_error(err: errors.ClientError) -> bool:
+    """Handle recoverable API errors and return True if handled."""
+    if err.code != 429 and err.status != "RESOURCE_EXHAUSTED":
+        return False
+
+    print_usage_stats(None)
+    print(
+        "Error: Gemini API quota exceeded. Please check your plan or retry later.",
+        file=sys.stderr,
+    )
+    return True
 
 
 def build_tool_response(function_name: str, payload: dict[str, str]) -> types.Content:
@@ -102,20 +116,20 @@ def parse_cli_args(argv: list[str]) -> tuple[str, bool]:
     """Parse CLI arguments and return the prompt and verbose flag."""
     verbose = "--verbose" in argv
     args_without_verbose = [arg for arg in argv[1:] if arg != "--verbose"]
-    
+
     # If no command-line arguments, try environment variable, stdin, or use default
     if not args_without_verbose:
         # Try USER_PROMPT environment variable first
         env_prompt = os.environ.get("USER_PROMPT")
         if env_prompt:
             return env_prompt, verbose
-        
+
         # Then try stdin if available
         if not sys.stdin.isatty():
             stdin_prompt = sys.stdin.read().strip()
             if stdin_prompt:
                 return stdin_prompt, verbose
-        
+
         # Use a default prompt for testing
         return "Hello, how are you?", verbose
 
@@ -229,14 +243,19 @@ def run_conversation(client, messages: list[types.Content], verbose: bool) -> No
     resp = None
 
     for _ in range(MAX_ITERATIONS):
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash-001",
-            contents=messages,
-            config=types.GenerateContentConfig(
-                tools=[available_functions],
-                system_instruction=system_prompt,
-            ),
-        )
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.0-flash-001",
+                contents=messages,
+                config=types.GenerateContentConfig(
+                    tools=[available_functions],
+                    system_instruction=system_prompt,
+                ),
+            )
+        except errors.ClientError as err:
+            if handle_client_error(err):
+                return
+            raise
 
         append_candidate_messages(resp, messages)
         parts = get_response_parts(resp)
